@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Elite | VIP Gaming Terminal</title>
+    
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        :root {
+            --bg: #020406;
+            --card: rgba(10, 15, 25, 0.9);
+            --gold: #f59e0b;
+            --gold-glow: rgba(245, 158, 11, 0.4);
+            --emerald: #10b981;
+            --ruby: #ef4444;
+            --text: #f8fafc;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background: var(--bg); color: var(--text); overflow: hidden; height: 100vh; width: 100vw; }
+
+        /* --- Toasts --- */
+        #toast-container { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 5000; width: 90%; max-width: 350px; pointer-events: none; }
+        .toast { background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(15px); border: 1px solid var(--border); padding: 15px 20px; border-radius: 16px; display: flex; align-items: center; gap: 12px; margin-bottom: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); opacity: 0; transform: translateY(-20px); font-size: 13px; }
+        .toast.success { border-left: 4px solid var(--emerald); }
+        .toast.error { border-left: 4px solid var(--ruby); }
+
+        /* --- Screens --- */
+        #loading-screen, #banned-screen { position: fixed; inset: 0; background: var(--bg); z-index: 4000; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px; }
+        #banned-screen { display: none; background: radial-gradient(circle, #300, #020406); }
+        .logo-glow { width: 80px; height: 80px; filter: drop-shadow(0 0 15px var(--gold)); animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.6; } }
+
+        /* --- Layout --- */
+        #auth-screen, #app-interface { height: 100vh; display: none; flex-direction: column; }
+        .modern-card { background: var(--card); backdrop-filter: blur(30px); border: 1px solid var(--border); border-radius: 30px; padding: 25px; width: 95%; max-width: 400px; margin: auto; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+
+        .field { position: relative; margin-bottom: 12px; }
+        .field i { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--gold); width: 16px; }
+        input, select { width: 100%; background: rgba(0,0,0,0.5); border: 1px solid var(--border); padding: 12px 12px 12px 45px; border-radius: 14px; color: white; outline: none; font-size: 14px; }
+        input:focus { border-color: var(--gold); box-shadow: 0 0 10px var(--gold-glow); }
+
+        .btn { width: 100%; padding: 16px; border-radius: 16px; border: none; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; transition: 0.2s; }
+        .btn-primary { background: linear-gradient(135deg, var(--emerald), #065f46); color: white; }
+        .btn-gold { background: var(--gold); color: black; box-shadow: 0 0 15px var(--gold-glow); }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: white; }
+
+        /* --- Header & Nav --- */
+        header { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; background: rgba(2,4,6,0.9); border-bottom: 1px solid var(--border); }
+        .bal-pill { display: flex; align-items: center; gap: 8px; background: rgba(245,158,11,0.1); border: 1px solid var(--gold); padding: 8px 16px; border-radius: 50px; color: var(--gold); font-weight: 900; }
+        
+        nav { position: fixed; bottom: 0; width: 100%; height: 85px; background: #0a0f19; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid var(--border); padding-bottom: 10px; }
+        .nav-item { color: #64748b; display: flex; flex-direction: column; align-items: center; font-size: 10px; gap: 5px; cursor: pointer; transition: 0.3s; }
+        .nav-item.active { color: var(--gold); transform: translateY(-3px); }
+
+        main { flex: 1; overflow-y: auto; padding: 15px; padding-bottom: 110px; }
+        .view { display: none; }
+        .view.active { display: block; animation: slideUp 0.4s ease-out; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- Games UI --- */
+        .mines-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 15px auto; max-width: 340px; }
+        .tile { aspect-ratio: 1; background: var(--glass); border-radius: 12px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; transition: 0.2s; }
+        .tile.revealed { background: rgba(255,255,255,0.05); transform: rotateY(180deg); }
+
+        .tower-wrap { max-width: 280px; margin: 0 auto; position: relative; height: 350px; display: flex; flex-direction: column-reverse; gap: 8px; }
+        .t-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; height: 55px; }
+        .t-row.locked { opacity: 0.1; pointer-events: none; }
+        .brick { background: var(--glass); border: 1px solid var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+        #ball { position: absolute; width: 15px; height: 15px; background: white; border-radius: 50%; bottom: -15px; left: 50%; transform: translateX(-50%); box-shadow: 0 0 15px #fff; z-index: 10; }
+
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.96); backdrop-filter: blur(20px); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 15px; }
+        .boss-card { background: linear-gradient(135deg, rgba(245,158,11,0.1), transparent); border: 1px solid var(--gold); border-radius: 20px; padding: 20px; text-align: center; margin-bottom: 20px; box-shadow: 0 0 15px var(--gold-glow); }
+    </style>
+</head>
+<body>
+
+    <div id="toast-container"></div>
+
+    <!-- System Screens -->
+    <section id="loading-screen">
+        <svg class="logo-glow" viewBox="0 0 100 100"><polygon points="50,5 95,25 95,75 50,95 5,75 5,25" fill="none" stroke="#f59e0b" stroke-width="3"/><path d="M30 40 L50 20 L70 40 L50 80 Z" fill="#f59e0b"/></svg>
+        <h2 style="color: var(--gold); letter-spacing: 5px; margin-top: 20px; font-weight: 900;">NEON ELITE</h2>
+    </section>
+
+    <section id="banned-screen">
+        <i data-lucide="shield-off" style="width:60px; height:60px; color: var(--ruby); margin-bottom: 20px;"></i>
+        <h2 style="color: var(--ruby); margin-bottom: 10px; font-weight: 900;">ACCESS TERMINATED</h2>
+        <p style="opacity: 0.7; font-size: 13px; max-width: 300px;">Your account has been permanently removed by the administrator. Device ID has been restricted Note:(sometimes this error shows when admin approve your withdraw, deposit or bonus. so please click Refresh and sign in. When you see this error again that's mean you are removed).</p>
+        <button class="btn btn-outline" style="margin-top: 30px; border-color: var(--ruby); color: var(--ruby);" onclick="location.reload()">Refresh System</button>
+    </section>
+
+    <!-- Modal -->
+    <div id="txn-modal" class="modal">
+        <div class="modern-card" style="width: 100%;">
+            <div id="deposit-boss-info" style="display: none;">
+                <div class="boss-card">
+                    <p style="font-size: 10px; color: var(--gold); letter-spacing: 2px;">OFFICIAL RECEIVER</p>
+                    <h2 style="color: #fff; margin: 5px 0;">+923284378937</h2>
+                    <p style="font-size: 14px; font-weight: 800;">Name: UMEED UMEED</p>
+                    <p style="font-size: 9px; opacity: 0.6; margin-top: 8px;">*Transfer amount and enter TID and send screenshot on WhatsApp(+923140943604) or simply fill the form and click on Authorize... button you will automatically redirect to admin WhatsApp</p>
+                </div>
+            </div>
+            <div style="display:flex; justify-content: space-between; margin-bottom:20px;">
+                <h3 id="modal-title" style="font-size: 16px; font-weight: 900;">REQUEST</h3>
+                <i data-lucide="x-circle" onclick="closeModal()" style="cursor:pointer; opacity: 0.5;"></i>
+            </div>
+            <div class="field"><i data-lucide="hash"></i><input type="number" id="txn-amount" placeholder="Amount (PKR)"></div>
+            <div class="field"><i data-lucide="user"></i><input type="text" id="txn-name" placeholder="Account Name"></div>
+            <div class="field"><i data-lucide="building"></i><select id="txn-bank" style="padding-left: 45px;"><option value="EasyPaisa">EasyPaisa</option><option value="JazzCash">JazzCash</option></select></div>
+            <div class="field"><i data-lucide="phone"></i><input type="text" id="txn-number" placeholder="Mobile / TID"></div>
+            <button class="btn btn-gold" onclick="submitTransaction()"><i data-lucide="send"></i> Authorize Transfer</button>
+        </div>
+    </div>
+
+    <!-- Auth -->
+    <section id="auth-screen">
+        <div class="modern-card">
+            <h2 style="text-align:center; margin-bottom:25px; letter-spacing: 3px; font-weight: 900; color: var(--gold);">MEMBERSHIP</h2>
+            <div class="field"><i data-lucide="mail"></i><input type="email" id="auth-email" placeholder="Gmail Only"></div>
+            <div class="field"><i data-lucide="lock"></i><input type="password" id="auth-pass" placeholder="Password"></div>
+            <div id="signup-extra" style="display: none;">
+                <div class="field"><i data-lucide="message-circle"></i><input type="text" id="auth-wa" placeholder="WhatsApp Number"></div>
+            </div>
+            <div id="auth-btns">
+                <button class="btn btn-primary" onclick="handleAuth('login')"><i data-lucide="log-in"></i> Secure Sign In</button>
+                <button class="btn btn-outline" style="margin-top:10px;" onclick="showSignupFields()"><i data-lucide="plus-circle"></i> New Profile</button>
+            </div>
+            <div id="signup-btns" style="display: none;">
+                <button class="btn btn-gold" onclick="handleAuth('signup')"><i data-lucide="check-circle"></i> Complete Signup</button>
+                <button class="btn btn-outline" style="margin-top:10px;" onclick="location.reload()">Back</button>
+            </div>
+            <p id="auth-error" style="color:var(--ruby); font-size:10px; margin-top:15px; text-align:center;"></p>
+        </div>
+    </section>
+
+    <!-- App Main Interface -->
+    <div id="app-interface">
+        <header>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <i data-lucide="crown" style="color:var(--gold); width:18px;"></i>
+                <span style="font-weight:900; font-size:13px; letter-spacing:1px;">NEON ELITE</span>
+            </div>
+            <div class="bal-pill">
+                <i data-lucide="wallet" style="width:16px;"></i>
+                Rs. <span id="header-bal">0.00</span>
+                <i data-lucide="refresh-cw" id="ref-btn" style="width:14px; cursor:pointer;" onclick="refreshBal()"></i>
+            </div>
+        </header>
+
+        <main>
+            <div id="view-home" class="view active"></div>
+
+            <!-- Games Views -->
+            <div id="view-mines" class="view">
+                <div class="modern-card" style="width:100%; margin-bottom:20px; padding:20px;">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                        <div><label style="font-size:9px; opacity:0.5;">BET</label><input type="number" id="mine-bet" value="50"></div>
+                        <div><label style="font-size:9px; opacity:0.5;">MINES</label><input type="number" id="mine-count" value="3"></div>
+                    </div>
+                    <button class="btn btn-primary" id="btn-m-start" onclick="startMines()"><i data-lucide="play"></i> Start Mines</button>
+                    <button class="btn btn-gold" id="btn-m-cash" style="display:none;" onclick="cashoutMines()"><i data-lucide="banknote"></i> Cash Out</button>
+                </div>
+                <div id="mine-status" style="text-align:center; color:var(--gold); font-weight:900; font-size:14px; margin-bottom:15px;"></div>
+                <div class="mines-grid" id="mines-grid"></div>
+            </div>
+
+            <div id="view-bricks" class="view">
+                <div class="modern-card" style="width:100%; margin-bottom:20px; padding:20px;">
+                    <label style="font-size:10px; opacity:0.5;">BET AMOUNT</label>
+                    <input type="number" id="brick-bet" value="50" style="margin-bottom:15px;">
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-primary" id="btn-b-start" onclick="startBricks()"><i data-lucide="arrow-up-circle"></i> Start Climb</button>
+                        <button class="btn btn-gold" id="btn-b-cash" style="display:none;" onclick="cashoutBricks()"><i data-lucide="dollar-sign"></i> Cash Out</button>
+                    </div>
+                </div>
+                <div id="brick-status" style="text-align:center; color:var(--gold); font-weight:900; font-size:14px; margin-bottom:10px;">Next: Row 1</div>
+                <div class="tower-wrap" id="tower-container"><div id="ball"></div></div>
+            </div>
+
+            <div id="view-profile" class="view">
+                <div class="modern-card" style="width:100%; text-align:center; margin-bottom:20px;">
+                    <p style="opacity:0.5; font-size:10px;">WALLET BALANCE</p>
+                    <h1 style="color:var(--emerald); margin:10px 0; font-size:36px; font-weight:900;">Rs. <span id="prof-bal">0.00</span></h1>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
+                    <button class="btn btn-primary" onclick="openModal('Deposit')"><i data-lucide="plus"></i> Deposit</button>
+                    <button id="withdraw-btn-main" class="btn btn-gold" style="display:none" onclick="openModal('Withdraw')"><i data-lucide="arrow-down-to-line"></i> Withdraw</button>
+                </div>
+                <div id="withdraw-locked" style="background:rgba(239,68,68,0.05); border:1px dashed var(--ruby); padding:20px; border-radius:20px; text-align:center;">
+                    <p style="font-size:11px; color:var(--ruby); font-weight:900;"><i data-lucide="lock" style="width:14px;"></i> WITHDRAW LOCKED</p>
+                    <p style="font-size:10px; opacity:0.5; margin-top:5px;">500 PKR balance required.</p>
+                </div>
+                <button class="btn btn-outline" style="margin-top:50px; border-color:var(--ruby); color:var(--ruby);" onclick="auth.signOut()"><i data-lucide="power"></i> Logout</button>
+            </div>
+        </main>
+
+        <nav>
+            <div class="nav-item active" id="nav-home" onclick="switchTab('home')"><i data-lucide="home"></i><span>Home</span></div>
+            <div class="nav-item" id="nav-mines" onclick="switchTab('mines')"><i data-lucide="gem"></i><span>Mines</span></div>
+            <div class="nav-item" id="nav-bricks" onclick="switchTab('bricks')"><i data-lucide="layers"></i><span>Tower</span></div>
+            <div class="nav-item" id="nav-profile" onclick="switchTab('profile')"><i data-lucide="user-cog"></i><span>Wallet</span></div>
+        </nav>
+    </div>
+
+    <script>
+        // --- 1. CONFIGURATION ---
+     const firebaseConfig = {
+  apiKey: "AIzaSyA3D_1IRdpPB_2rmF5rtGqvJ1EXFNF2zxc",
+  authDomain: "alarix-61e90.firebaseapp.com",
+  databaseURL: "https://alarix-61e90-default-rtdb.firebaseio.com",
+  projectId: "alarix-61e90",
+  storageBucket: "alarix-61e90.firebasestorage.app",
+  messagingSenderId: "747193234958",
+  appId: "1:747193234958:web:c69501009d5950b63d6e5f",
+  measurementId: "G-DV5XBRC8L1"
+};
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // Constants
+        const WHATSAPP_SUPPORT = "+923140943604";
+        const BOSS_DEPOSIT_NUM = "+923284378937";
+
+        let userData = null;
+        let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // --- 2. SOUND ENGINE ---
+        function sfx(type) {
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            osc.connect(g); g.connect(audioCtx.destination);
+            g.gain.setValueAtTime(0.05, audioCtx.currentTime);
+            if(type==='win'){ osc.type='sine'; osc.frequency.setValueAtTime(500, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1000, audioCtx.currentTime + 0.2); }
+            else if(type==='lose'){ osc.type='sawtooth'; osc.frequency.setValueAtTime(150, audioCtx.currentTime); osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 0.3); }
+            else { osc.type='sine'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); }
+            osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        // --- 3. TOASTS ---
+        function toast(msg, type='success') {
+            const container = document.getElementById('toast-container');
+            const el = document.createElement('div'); el.className = `toast ${type}`;
+            el.innerHTML = `<i data-lucide="bell" style="width:18px;"></i> <span>${msg}</span>`;
+            container.appendChild(el); lucide.createIcons();
+            gsap.to(el, { opacity:1, y:0, duration:0.4 });
+            setTimeout(() => gsap.to(el, { opacity:0, y:-20, duration:0.4, onComplete:()=>el.remove() }), 3000);
+        }
+
+        // --- 4. AUTH & SECURITY ---
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                // FIXED: Robust real-time listener
+                db.collection('users').doc(user.uid).onSnapshot((doc) => {
+                    if (!doc.exists) {
+                        // Truly Deleted by Admin
+                        auth.signOut();
+                        document.getElementById('app-interface').style.display = 'none';
+                        document.getElementById('banned-screen').style.display = 'flex';
+                        return;
+                    }
+                    userData = doc.data();
+                    updateUI();
+                    document.getElementById('auth-screen').style.display = 'none';
+                    document.getElementById('app-interface').style.display = 'flex';
+                    document.getElementById('loading-screen').style.display = 'none';
+                });
+            } else {
+                document.getElementById('app-interface').style.display = 'none';
+                document.getElementById('auth-screen').style.display = 'flex';
+                document.getElementById('loading-screen').style.display = 'none';
+            }
+        });
+
+        async function handleAuth(type) {
+            const e = document.getElementById('auth-email').value.toLowerCase().trim();
+            const p = document.getElementById('auth-pass').value;
+            const wa = document.getElementById('auth-wa').value.trim();
+            if(!e || !p) return toast("Fill fields", "error");
+            if(type==='signup' && !e.endsWith('@gmail.com')) return toast("Gmail only", "error");
+            try {
+                if (type === 'signup') {
+                    const cred = await auth.createUserWithEmailAndPassword(e, p);
+                    await db.collection('users').doc(cred.user.uid).set({ balance: 0, email: e, whatsapp: wa, isVerified: false });
+                } else await auth.signInWithEmailAndPassword(e, p);
+            } catch (err) { toast(err.message, "error"); }
+        }
+
+        function showSignupFields() {
+            document.getElementById('signup-extra').style.display = 'block';
+            document.getElementById('auth-btns').style.display = 'none';
+            document.getElementById('signup-btns').style.display = 'block';
+        }
+
+        function updateUI() {
+            if(!userData) return;
+            const b = userData.balance || 0;
+            document.getElementById('header-bal').innerText = b.toFixed(2);
+            document.getElementById('prof-bal').innerText = b.toFixed(2);
+            document.getElementById('withdraw-btn-main').style.display = (b >= 500) ? 'flex' : 'none';
+            document.getElementById('withdraw-locked').style.display = (b >= 500) ? 'none' : 'block';
+
+            const home = document.getElementById('view-home');
+            if(!userData.isVerified) {
+                home.innerHTML = `<div class="modern-card" style="text-align:center; border-color:var(--gold);">
+                    <i data-lucide="shield-check" style="width:50px; height:50px; color:var(--gold); margin-bottom:15px;"></i>
+                    <h3>ACCOUNT UNVERIFIED</h3>
+                    <p style="font-size:11px; opacity:0.6; margin-bottom:20px;">Verify your WhatsApp <b>${userData.whatsapp}</b> to claim Rs. 177 Bonus.</p>
+                    <button class="btn btn-gold" onclick="verifyWhatsApp()"><i data-lucide="message-circle"></i> Verify on WhatsApp</button>
+                </div>`;
+            } else {
+                home.innerHTML = `<p style="opacity:0.4; font-size:10px; margin-bottom:15px; font-weight:800;">ELITE GAMES</p>
+                <div class="modern-card" style="padding:20px; display:flex; align-items:center; gap:15px; margin-bottom:15px; cursor:pointer;" onclick="switchTab('mines')">
+                    <div style="background:rgba(16,185,129,0.1); padding:10px; border-radius:12px; color:var(--emerald);"><i data-lucide="gem"></i></div>
+                    <div style="flex:1"><h5>Mines Classic</h5><p style="font-size:10px; opacity:0.5;">Find gems, avoid bombs</p></div>
+                    <i data-lucide="play" style="width:14px; opacity:0.3;"></i>
+                </div>
+                <div class="modern-card" style="padding:20px; display:flex; align-items:center; gap:15px; cursor:pointer;" onclick="switchTab('bricks')">
+                    <div style="background:rgba(245,158,11,0.1); padding:10px; border-radius:12px; color:var(--gold);"><i data-lucide="layers"></i></div>
+                    <div style="flex:1"><h5>Tower Climb</h5><p style="font-size:10px; opacity:0.5;">Climb for jackpot + 100 bonus</p></div>
+                    <i data-lucide="play" style="width:14px; opacity:0.3;"></i>
+                </div>`;
+            }
+            lucide.createIcons();
+        }
+
+        // --- 5. TRANSACTIONS ---
+        let txnMode = 'Deposit';
+        function openModal(mode) {
+            txnMode = mode;
+            document.getElementById('modal-title').innerText = mode.toUpperCase();
+            document.getElementById('deposit-boss-info').style.display = (mode==='Deposit')?'block':'none';
+            document.getElementById('txn-modal').style.display = 'flex';
+        }
+        function closeModal() { document.getElementById('txn-modal').style.display = 'none'; }
+
+        async function sync(amount) {
+            await db.collection('users').doc(auth.currentUser.uid).update({ balance: firebase.firestore.FieldValue.increment(amount) });
+        }
+
+        async function submitTransaction() {
+            const amt = parseFloat(document.getElementById('txn-amount').value);
+            const name = document.getElementById('txn-name').value;
+            const bank = document.getElementById('txn-bank').value;
+            const num = document.getElementById('txn-number').value;
+            if(!amt || amt <= 0 || !name || !num) return toast("Invalid Details", "error");
+            if(txnMode === 'Withdraw' && amt > userData.balance) return toast("Insufficient Funds", "error");
+
+            if(txnMode === 'Withdraw') await sync(-amt);
+
+            await db.collection('requests').add({ uid: auth.currentUser.uid, email: userData.email, amount: amt, name, bank, number: num, type: txnMode, status: 'pending', timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+
+            const msg = `🎰 *NEON ELITE REQUEST*\nType: ${txnMode}\nAmount: ${amt}\nBank: ${bank}\nAccount: ${num}\nName: ${name}\nUser: ${userData.email}`;
+            window.open(`https://wa.me/${WHATSAPP_SUPPORT}?text=${encodeURIComponent(msg)}`, '_blank');
+            closeModal(); toast("Request Submitted", "success");
+        }
+
+        function verifyWhatsApp() {
+            const msg = `🎰 *VERIFY REQUEST*\nEmail: ${userData.email}\nWA: ${userData.whatsapp}\nPlease verify and add 177 bonus.`;
+            window.open(`https://wa.me/${WHATSAPP_SUPPORT}?text=${encodeURIComponent(msg)}`, '_blank');
+        }
+
+        async function refreshBal() {
+            gsap.to("#ref-btn", { rotation: "+=360", duration: 0.6 });
+            toast("Balance Synced", "success");
+        }
+
+        function switchTab(t) {
+            if(t!=='home' && t!=='profile' && !userData.isVerified) return toast("Verify First!", "error");
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('view-' + t).classList.add('active');
+            document.getElementById('nav-' + (t==='home'?'home':t==='mines'?'mines':t==='bricks'?'bricks':'profile')).classList.add('active');
+            resetMines(); resetBricks(); lucide.createIcons();
+        }
+
+        // --- 6. GAMES ---
+        // Mines
+        let mActive=false, mPos=[], mRev=0, mBet=0;
+        function startMines() {
+            const b = parseFloat(document.getElementById('mine-bet').value);
+            const c = parseInt(document.getElementById('mine-count').value);
+            if(b > userData.balance || b <= 0) return toast("Low Balance", "error");
+            mBet=b; mRev=0; mActive=true; sync(-b);
+            mPos=Array(25).fill(false); let p=0; while(p<c){let r=Math.floor(Math.random()*25); if(!mPos[r]){mPos[r]=true;p++;}}
+            const grid=document.getElementById('mines-grid'); grid.innerHTML='';
+            for(let i=0; i<25; i++) {
+                const t=document.createElement('div'); t.className='tile';
+                t.onclick=()=>{ if(!mActive||t.innerText)return; if(mPos[i]){t.innerText='💣';t.style.background='var(--ruby)';mActive=false;sfx('lose');setTimeout(resetMines,1500);} else {t.innerText='💎';t.style.color='var(--emerald)';mRev++;sfx('gem'); const mult=(25/(25-mRev-c))*0.98; document.getElementById('mine-status').innerText=`${mult.toFixed(2)}x Profit`;} };
+                grid.appendChild(t);
+            }
+            document.getElementById('btn-m-start').style.display='none'; document.getElementById('btn-m-cash').style.display='flex';
+        }
+        function cashoutMines() { const c=parseInt(document.getElementById('mine-count').value); const mult=(25/(25-mRev-c))*0.98; sync(mBet*mult); confetti(); sfx('win'); resetMines(); }
+        function resetMines() { mActive=false; document.getElementById('btn-m-start').style.display='flex'; document.getElementById('btn-m-cash').style.display='none'; document.getElementById('mine-status').innerText=''; }
+
+        // Tower
+        let bActive=false, bRow=0, bBombs=[], bBet=0;
+        const bMults = [1.2, 2.0, 4.0, 8.0, 15.0];
+        function startBricks() {
+            const b = parseFloat(document.getElementById('brick-bet').value);
+            if(b > userData.balance || b <= 0) return toast("Low Balance", "error");
+            bBet=b; sync(-b); bActive=true; bRow=0;
+            bBombs=Array.from({length:5}, ()=>Math.floor(Math.random()*3));
+            document.getElementById('btn-b-start').style.display='none';
+            renderBricks();
+        }
+        function renderBricks() {
+            const cont=document.getElementById('tower-container'); cont.innerHTML='<div id="ball"></div>';
+            for(let i=0; i<5; i++) {
+                const r=document.createElement('div'); r.className=`t-row ${i===bRow?'':'locked'}`;
+                for(let j=0; j<3; j++) {
+                    const br=document.createElement('div'); br.className='brick';
+                    br.onclick=()=>{ if(bActive && i===bRow) hitBrick(i,j,br); };
+                    r.appendChild(br);
+                } cont.appendChild(r);
+            }
+            document.getElementById('brick-status').innerText=`Row ${bRow+1} Multiplier: ${bMults[bRow]}x`;
+        }
+        function hitBrick(rIdx, bIdx, el) {
+            const ball=document.getElementById('ball'); const rect=el.getBoundingClientRect(); const cRect=document.getElementById('tower-container').getBoundingClientRect();
+            gsap.to(ball, { left: rect.left-cRect.left+(rect.width/2), bottom: cRect.bottom-rect.top-(rect.height/2), duration:0.4, onComplete:()=>{
+                if(bIdx === bBombs[rIdx]){ el.innerText='💣'; bActive=false; sfx('lose'); setTimeout(resetBricks,1500); }
+                else { el.innerText='💎'; bRow++; sfx('gem'); document.getElementById('btn-b-cash').style.display='flex';
+                    if(bRow===5){ sync((bBet*15)+100); confetti(); sfx('win'); toast("JACKPOT +100!", "success"); resetBricks(); }
+                    else { gsap.to(ball,{bottom:"-15px", left:"50%", duration:0.3}); renderBricks(); }
+                }
+            }});
+        }
+        function cashoutBricks() { sync(bBet * bMults[bRow-1]); confetti(); sfx('win'); resetBricks(); }
+        function resetBricks() { bActive=false; document.getElementById('btn-b-start').style.display='flex'; document.getElementById('btn-b-cash').style.display='none'; gsap.to("#ball",{bottom:"-15px", left:"50%"}); }
+
+        lucide.createIcons();
+    </script>
+</body>
+</html>
